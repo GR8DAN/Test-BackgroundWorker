@@ -28,6 +28,7 @@
         /// </summary>
         private void InitializeComponent()
         {
+            System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(WorkerTest));
             this.LstStatus = new System.Windows.Forms.ListBox();
             this.BgrdWorker = new System.ComponentModel.BackgroundWorker();
             this.Progress = new System.Windows.Forms.ProgressBar();
@@ -175,6 +176,7 @@
             this.Controls.Add(this.lblFile);
             this.Controls.Add(this.Progress);
             this.Controls.Add(this.LstStatus);
+            this.Icon = ((System.Drawing.Icon)(resources.GetObject("$this.Icon")));
             this.Margin = new System.Windows.Forms.Padding(4, 5, 4, 5);
             this.MinimumSize = new System.Drawing.Size(364, 354);
             this.Name = "WorkerTest";
