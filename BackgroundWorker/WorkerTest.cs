@@ -7,9 +7,6 @@ namespace WorkerTest
 {
     public partial class WorkerTest : Form
     {
-        long FileLength;        //Store the length of the file being processed
-        long BytesProcessed;    //Count the characters processed
-
         //Count the frequency of different characters
         long LowercaseEnglishLetter = 0;
         long LowercaseNonEnglishLetter = 0;
@@ -26,21 +23,99 @@ namespace WorkerTest
         {
             InitializeComponent();
         }
-
+        #region Buttons and Listbox
+        //Get the file
+        private void ButChooseFile_Click(object sender, EventArgs e)
+        {
+            DialogResult result = FileDialog.ShowDialog();
+            if (result == DialogResult.OK)
+            {
+                TxtFile.Text = FileDialog.FileName;
+                ButGo.Enabled = true;
+            }
+        }
+        //Process the file
+        private void ButGo_Click(object sender, EventArgs e)
+        {
+            ButCancel.Enabled = true;
+            //Clear previous results
+            ButClear_Click(this, null);
+            if (!File.Exists(TxtFile.Text))
+            {
+                AddMessage("The file " + TxtFile.Text + " does not exist.");
+            }
+            else
+            {
+                AddMessage("Starting letter analysis...");
+                if (BgrdWorker.IsBusy != true)
+                {
+                    ButGo.Enabled = false;
+                    // Start the asynchronous operation.
+                    BgrdWorker.RunWorkerAsync(TxtFile.Text);
+                }
+            }
+        }
+        //Cancel the processing
+        private void ButCancel_Click(object sender, EventArgs e)
+        {
+            if (BgrdWorker.WorkerSupportsCancellation == true)
+            {
+                // Cancel the asynchronous operation.
+                BgrdWorker.CancelAsync();
+            }
+        }
+        //Clear the data
+        private void ButClear_Click(object sender, EventArgs e)
+        {
+            LstStatus.Items.Clear();
+            Progress.Value = 0;
+            LetterFrequency = new long[26];
+            LowercaseEnglishLetter = 0;
+            LowercaseNonEnglishLetter = 0;
+            UppercaseEnglishLetter = 0;
+            UppercaseNonEnglishLetter = 0;
+            EnglishLetter = 0;
+            Digit0to9 = 0;
+            Whitespace = 0;
+            ControlCharacter = 0;
+        }
+        //User feedback in listbox
+        int AddMessage(string MessageToAdd)
+        {
+            //Limit number of items
+            if (LstStatus.Items.Count >= 60000)
+                LstStatus.Items.RemoveAt(0);
+            int ret = LstStatus.Items.Add(MessageToAdd);
+            //ensure new item is visible
+            LstStatus.TopIndex = LstStatus.Items.Count - 1;
+            return ret;
+        }
+        #endregion
         #region  BackgroundWorker
         private void BgrdWorker_DoWork(object sender, DoWorkEventArgs e)
         {
-            BackgroundWorker worker = sender as BackgroundWorker;
-            int nextChar;
- 
+            string file;            //name of file to analyse
+            long fileLength;        //store total number bytes to process
+            long bytesProcessed;    //Count the characters processed
+            int nextChar;           //stores each char to analyse
+            int progress;           //percentage for progress reporting
+            BackgroundWorker worker = sender as BackgroundWorker;   //who called us
+                       
             try
             {
-                // Create an instance of StreamReader to read from a file.
-                // The using statement also closes the StreamReader.
-                using (StreamReader sr = new StreamReader(TxtFile.Text))
+                //get the file to process
+                file = (string)e.Argument;
+                //How many bytes to process?
+                fileLength = (new FileInfo(TxtFile.Text)).Length;
+                bytesProcessed = 0; //none so far
+                // Create an instance of StreamReader to read from file
+                // The using statement also closes the StreamReader
+                using (StreamReader sr = new StreamReader(file))
                 {
+                    //until end of the file
                     while((nextChar = sr.Read()) != -1)
                     {
+                        //has the operation been cancelled
                         if (worker.CancellationPending == true)
                         {
                             e.Cancel = true;
@@ -50,34 +125,37 @@ namespace WorkerTest
                         {
                             //Now process the character
                             AnalyseChar((char)nextChar);
-                            BytesProcessed += 1;
-                            //Report back every 100,000 chars
-                            if (BytesProcessed % 100000 == 0)
+                            bytesProcessed += 1;
+                            //Report back every 100000 chars
+                            if (bytesProcessed % 100000 == 0)
                             {
                                 //report progress
-                                worker.ReportProgress(1, BytesProcessed);
+                                //actual percentage calculated on number of processed bytes
+                                progress =(int)Math.Ceiling(((float)bytesProcessed / fileLength) * 100);
+                                worker.ReportProgress(progress, bytesProcessed);
                             }
                         }
                     }
+                    e.Result = bytesProcessed;
                 }
             }
             catch (Exception ex)
             {
-                // What was the problem
-                AddMessage(ex.Message);
+                throw new Exception ("Error analysing text file: " + ex.ToString());
             }
         }
-
+        //Inform user of pregress
         private void BgrdWorker_ProgressChanged(object sender, ProgressChangedEventArgs e)
         {
             AddMessage("Processed: " + ((long)e.UserState).ToString() + " bytes");
-            Progress.Value = (int)Math.Ceiling(((float)BytesProcessed / FileLength) * 100);
+            Progress.Value = e.ProgressPercentage;
             LblPercent.Text = Progress.Value.ToString() + "%";
         }
-
+        //Finished the processing
         private void BgrdWorker_RunWorkerCompleted(object sender, RunWorkerCompletedEventArgs e)
         {
             ButCancel.Enabled = false;
+            ButGo.Enabled = true;
             if (e.Cancelled == true)
             {
                 AddMessage("Analysis aborted.");
@@ -88,10 +166,11 @@ namespace WorkerTest
             }
             else
             {
-                AddMessage("Analysis completed, bytes processed: " + BytesProcessed.ToString());
+                //100% completed
                 Progress.Value = 100;
                 LblPercent.Text = "100%";
-
+                //Print results
+                AddMessage("Analysis completed, bytes processed: " + ((long)e.Result).ToString());
                 if (LowercaseEnglishLetter > 0)
                     AddMessage("Total Lowercase English Letters=" + LowercaseEnglishLetter.ToString());
                 if (UppercaseEnglishLetter > 0)
@@ -107,87 +186,20 @@ namespace WorkerTest
                 if (ControlCharacter > 0)
                     AddMessage("Total Control Characters=" + ControlCharacter.ToString());
                 AddMessage("");
-                if (EnglishLetter > 0) {
+                //Show frequency of english letters
+                if (EnglishLetter > 0)
+                {
                     AddMessage("Total number of English letters:" + EnglishLetter.ToString());
                     double LetterPercentage;
                     string PrintResult;
                     for (int i = 0; i < 26; i++)
                     {
-                        LetterPercentage= ((double)LetterFrequency[i] / EnglishLetter) * 100.0;
-                        PrintResult=((char)(i + 65)).ToString();
+                        LetterPercentage = ((double)LetterFrequency[i] / EnglishLetter) * 100.0;
+                        PrintResult = ((char)(i + 65)).ToString();
                         for (int j = 0; j < Math.Round(LetterPercentage); j++)
                             PrintResult += "-";
                         AddMessage(PrintResult + " " + LetterPercentage.ToString("n3") + "%");
                     }
-                }
-            }
-        }
-        #endregion
-        #region Buttons
-        private void ButChooseFile_Click(object sender, EventArgs e)
-        {
-            DialogResult result = FileDialog.ShowDialog();
-            if (result == DialogResult.OK)
-            {
-                TxtFile.Text = FileDialog.FileName;
-                ButGo.Enabled = true;
-            }
-        }
-
-        private void ButGo_Click(object sender, EventArgs e)
-        {
-            ButCancel.Enabled = true;
-            Analysis();
-        }
-
-        private void ButCancel_Click(object sender, EventArgs e)
-        {
-            if (BgrdWorker.WorkerSupportsCancellation == true)
-            {
-                // Cancel the asynchronous operation.
-                BgrdWorker.CancelAsync();
-            }
-        }
-
-        private void ButClear_Click(object sender, EventArgs e)
-        {
-            LstStatus.Items.Clear();
-            Progress.Value = 0;
-            FileLength = 0;
-            BytesProcessed = 0;
-            LetterFrequency = new long[26];
-            LowercaseEnglishLetter = 0;
-            LowercaseNonEnglishLetter = 0;
-            UppercaseEnglishLetter = 0;
-            UppercaseNonEnglishLetter = 0;
-            EnglishLetter = 0;
-            Digit0to9 = 0;
-            Whitespace = 0;
-            ControlCharacter = 0;
-        }
-        #endregion
-
-        //Analyse the text file
-        void Analysis()
-        {
-            //Clear previous results
-            ButClear_Click(this,null);
-            if (!File.Exists(TxtFile.Text))
-            {
-                AddMessage("The file " + TxtFile.Text + " does not exist.");
-            }
-            else
-            {
-                AddMessage("Starting letter analysis...");
-                if (BgrdWorker.IsBusy != true)
-                {
-                    FileLength = (new FileInfo(TxtFile.Text)).Length;
-                    // Start the asynchronous operation.
-                    BgrdWorker.RunWorkerAsync();
-                }
-                else
-                {
-                    AddMessage("Please wait.");
                 }
             }
         }
@@ -206,7 +218,7 @@ namespace WorkerTest
                     LowercaseNonEnglishLetter++;
                 }
             }
-            else if(char.IsUpper(Character))
+            else if (char.IsUpper(Character))
             {
                 if (Character >= 'A' && Character <= 'Z')
                 {
@@ -232,16 +244,6 @@ namespace WorkerTest
             }
             EnglishLetter = LowercaseEnglishLetter + UppercaseEnglishLetter;
         }
-        //User feedback
-        int AddMessage(string MessageToAdd)
-        {
-            //Limit number of items
-            if (LstStatus.Items.Count >= 60000)
-                LstStatus.Items.RemoveAt(0);
-            int ret = LstStatus.Items.Add(MessageToAdd);
-            //ensure new item is visible
-            LstStatus.TopIndex = LstStatus.Items.Count - 1;
-            return ret;
-        }
+        #endregion
     }
 }
